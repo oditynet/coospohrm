@@ -13,8 +13,10 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.view.WindowManager
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -43,6 +45,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import java.text.SimpleDateFormat
@@ -88,7 +91,7 @@ class MainActivity : ComponentActivity() {
         get() = if (manufacturerName.isNotEmpty() && modelNumber.isNotEmpty())
             "$manufacturerName $modelNumber"
         else "Coospo H9Z"
-    private var statusText by mutableStateOf("Поиск устройства...")
+    private var statusText by mutableStateOf("Запрос разрешений...")
     private val hrHistory = mutableStateListOf<Int>()
     private var isTraining by mutableStateOf(false)
     private var trainingStartTime by mutableStateOf(0L)
@@ -107,6 +110,28 @@ class MainActivity : ComponentActivity() {
 
     private val gson = Gson()
 
+    private val permissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        if (permissions.values.all { it }) {
+            statusText = "Поиск устройства..."
+            connectToPairedDevice()
+        } else {
+            statusText = "Нужны разрешения Bluetooth"
+            Toast.makeText(this, "Предоставьте разрешения в настройках", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private val bluetoothEnableLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == RESULT_OK) {
+            connectToPairedDevice()
+        } else {
+            statusText = "Bluetooth выключен"
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -116,7 +141,7 @@ class MainActivity : ComponentActivity() {
 
         loadHistory()
         loadZones()
-        connectToPairedDevice()
+        checkPermissionsAndConnect()
 
         setContent {
             MaterialTheme {
@@ -199,14 +224,43 @@ class MainActivity : ComponentActivity() {
         getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().putString(ZONES_KEY, "$zone1Max,$zone2Max,$zone3Max,$zone4Max").apply()
     }
 
+    private fun checkPermissionsAndConnect() {
+        val permissions = mutableListOf<String>()
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            permissions.add(Manifest.permission.BLUETOOTH_SCAN)
+            permissions.add(Manifest.permission.BLUETOOTH_CONNECT)
+        }
+        permissions.add(Manifest.permission.ACCESS_FINE_LOCATION)
+
+        val notGranted = permissions.filter {
+            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+        }
+
+        if (notGranted.isEmpty()) {
+            if (bluetoothAdapter?.isEnabled == true) {
+                statusText = "Поиск устройства..."
+                connectToPairedDevice()
+            } else {
+                statusText = "Включите Bluetooth"
+                bluetoothEnableLauncher.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
+            }
+        } else {
+            permissionLauncher.launch(notGranted.toTypedArray())
+        }
+    }
+
     @SuppressLint("MissingPermission")
     private fun connectToPairedDevice() {
         if (bluetoothAdapter?.isEnabled != true) {
-            startActivity(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
+            bluetoothEnableLauncher.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
             return
         }
+
+        statusText = "Поиск устройства..."
         val pairedDevices = bluetoothAdapter?.bondedDevices
-        if (pairedDevices != null && pairedDevices.isNotEmpty()) {
+
+        if (pairedDevices != null) {
             for (device in pairedDevices) {
                 val name = device.name ?: ""
                 if (name.contains("H9Z", true) || name.contains("Coospo", true) || name.contains("Heart", true)) {
@@ -221,7 +275,7 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
-        statusText = "H9Z не найден"
+        statusText = "H9Z не найден в сопряженных"
     }
 
     private val gattCallback = object : BluetoothGattCallback() {
@@ -234,7 +288,15 @@ class MainActivity : ComponentActivity() {
                     }
                     BluetoothProfile.STATE_DISCONNECTED -> {
                         isConnected = false; statusText = "Отключено. Переподключение..."; heartRate = 0; batteryLevel = -1
-                        handler.postDelayed({ connectToPairedDevice() }, 3000)
+                        handler.postDelayed({
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
+                                    connectToPairedDevice()
+                                }
+                            } else {
+                                connectToPairedDevice()
+                            }
+                        }, 3000)
                     }
                 }
             }
@@ -417,7 +479,6 @@ fun MainScreen(
     onDeleteClick: (MainActivity.TrainingSession) -> Unit, onSettingsClick: () -> Unit
 ) {
     Column(Modifier.fillMaxSize().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        // Заголовок
         Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
             Text(deviceName, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -585,7 +646,6 @@ fun SettingsScreen(z1: Int, z2: Int, z3: Int, z4: Int, onSave: (Int, Int, Int, I
             Text("Настройка зон", fontSize = 18.sp, fontWeight = FontWeight.Bold)
         }
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 12.dp)) {
-            // Зона 1
             Card(Modifier.fillMaxWidth().padding(vertical = 3.dp), colors = CardDefaults.cardColors(containerColor = getZoneColor(1).copy(alpha = 0.1f))) {
                 Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.size(12.dp).clip(CircleShape).background(getZoneColor(1)))
@@ -595,15 +655,11 @@ fun SettingsScreen(z1: Int, z2: Int, z3: Int, z4: Int, onSave: (Int, Int, Int, I
                         Text(getZoneDescription(1), fontSize = 10.sp, color = Color.Gray)
                     }
                     Text("70 - ", fontSize = 14.sp)
-                    OutlinedTextField(
-                        value = nz1, onValueChange = { if (it.length <= 3 && it.all { c -> c.isDigit() }) nz1 = it },
-                        modifier = Modifier.width(65.dp).height(44.dp),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        textStyle = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
-                    )
+                    OutlinedTextField(value = nz1, onValueChange = { if (it.length <= 3 && it.all { c -> c.isDigit() }) nz1 = it },
+                        modifier = Modifier.width(65.dp).height(44.dp), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        textStyle = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center))
                 }
             }
-            // Зона 2
             Card(Modifier.fillMaxWidth().padding(vertical = 3.dp), colors = CardDefaults.cardColors(containerColor = getZoneColor(2).copy(alpha = 0.1f))) {
                 Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.size(12.dp).clip(CircleShape).background(getZoneColor(2)))
@@ -613,15 +669,11 @@ fun SettingsScreen(z1: Int, z2: Int, z3: Int, z4: Int, onSave: (Int, Int, Int, I
                         Text(getZoneDescription(2), fontSize = 10.sp, color = Color.Gray)
                     }
                     Text("$nz1 - ", fontSize = 14.sp)
-                    OutlinedTextField(
-                        value = nz2, onValueChange = { if (it.length <= 3 && it.all { c -> c.isDigit() }) nz2 = it },
-                        modifier = Modifier.width(65.dp).height(44.dp),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        textStyle = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
-                    )
+                    OutlinedTextField(value = nz2, onValueChange = { if (it.length <= 3 && it.all { c -> c.isDigit() }) nz2 = it },
+                        modifier = Modifier.width(65.dp).height(44.dp), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        textStyle = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center))
                 }
             }
-            // Зона 3
             Card(Modifier.fillMaxWidth().padding(vertical = 3.dp), colors = CardDefaults.cardColors(containerColor = getZoneColor(3).copy(alpha = 0.1f))) {
                 Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.size(12.dp).clip(CircleShape).background(getZoneColor(3)))
@@ -631,15 +683,11 @@ fun SettingsScreen(z1: Int, z2: Int, z3: Int, z4: Int, onSave: (Int, Int, Int, I
                         Text(getZoneDescription(3), fontSize = 10.sp, color = Color.Gray)
                     }
                     Text("$nz2 - ", fontSize = 14.sp)
-                    OutlinedTextField(
-                        value = nz3, onValueChange = { if (it.length <= 3 && it.all { c -> c.isDigit() }) nz3 = it },
-                        modifier = Modifier.width(65.dp).height(44.dp),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        textStyle = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
-                    )
+                    OutlinedTextField(value = nz3, onValueChange = { if (it.length <= 3 && it.all { c -> c.isDigit() }) nz3 = it },
+                        modifier = Modifier.width(65.dp).height(44.dp), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        textStyle = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center))
                 }
             }
-            // Зона 4
             Card(Modifier.fillMaxWidth().padding(vertical = 3.dp), colors = CardDefaults.cardColors(containerColor = getZoneColor(4).copy(alpha = 0.1f))) {
                 Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.size(12.dp).clip(CircleShape).background(getZoneColor(4)))
@@ -649,15 +697,11 @@ fun SettingsScreen(z1: Int, z2: Int, z3: Int, z4: Int, onSave: (Int, Int, Int, I
                         Text(getZoneDescription(4), fontSize = 10.sp, color = Color.Gray)
                     }
                     Text("$nz3 - ", fontSize = 14.sp)
-                    OutlinedTextField(
-                        value = nz4, onValueChange = { if (it.length <= 3 && it.all { c -> c.isDigit() }) nz4 = it },
-                        modifier = Modifier.width(65.dp).height(44.dp),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        textStyle = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
-                    )
+                    OutlinedTextField(value = nz4, onValueChange = { if (it.length <= 3 && it.all { c -> c.isDigit() }) nz4 = it },
+                        modifier = Modifier.width(65.dp).height(44.dp), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        textStyle = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center))
                 }
             }
-            // Зона 5
             Card(Modifier.fillMaxWidth().padding(vertical = 3.dp), colors = CardDefaults.cardColors(containerColor = getZoneColor(5).copy(alpha = 0.1f))) {
                 Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.size(12.dp).clip(CircleShape).background(getZoneColor(5)))
