@@ -1,17 +1,16 @@
 # coospohrm
 
-Менеджер для тренировок с нагрудным пульсометром Coospo H9Z
+Coospo H9Z Chest Heart Rate Monitor Workout Manager
 
+Features battery level display, workout manager, last 60 heart rate chart, and calorie counter.
 
-Поддерживается показ уровень зарядки, менеджер тренировок, график последних 60 ударов и подсчет калорий.
+Device syncing is done via Bluetooth and after the app is turned on.
 
-Синхронизацию устройства выполнить через блютуз и после включить приложение.
+Version 1.2: Added calorie counter
 
-Версия 1.2: Добавил подсчет калорий 
+Version 1.1: Bug fix
 
-Версия 1.1: bug fix
-
-Версия 1.0: Релиз идеи
+Version 1.0: Ideas release
 
 <p align="center">
   <img src="pic1.png" width="45%" />
