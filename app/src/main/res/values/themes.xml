@@ -1,0 +1,12 @@
+<resources>
+    <style name="Base.Theme" parent="android:Theme.Material.Light.NoActionBar">
+    </style>
+
+    <style name="Theme.Material3.DayNight.NoActionBar" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:statusBarColor">@color/primaryDark</item>
+        <item name="android:navigationBarColor">@color/primaryDark</item>
+    </style>
+
+    <style name="Theme.CoospoHRM" parent="Theme.Material3.DayNight.NoActionBar">
+    </style>
+</resources>
