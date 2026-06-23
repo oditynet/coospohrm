@@ -11,3 +11,9 @@
 Версия 1.1: bug fix
 
 Версия 1.0: Релиз идеи
+
+<p align="center">
+  <img src="pic1.png" width="45%" />
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="pic2.png" width="45%" />
+</p>
