@@ -12,29 +12,23 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.core.content.ContextCompat
-import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.ViewModelProvider
 
 class MainActivity : ComponentActivity() {
 
-    private val vm: HeartRateViewModel by viewModels()
+    private val vm: HeartRateViewModel by lazy { ViewModelProvider(this)[HeartRateViewModel::class.java] }
 
-    private val permissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) { res ->
+    private val permissionLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { res ->
         if (res.values.all { it }) ensureBluetoothEnabled()
         else Toast.makeText(this, "Нужны разрешения Bluetooth", Toast.LENGTH_LONG).show()
     }
 
-    private val enableBtLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) { r ->
+    private val enableBtLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
         if (r.resultCode == RESULT_OK) vm.connect()
     }
 
@@ -58,21 +52,15 @@ class MainActivity : ComponentActivity() {
             needed += Manifest.permission.BLUETOOTH_SCAN
             needed += Manifest.permission.BLUETOOTH_CONNECT
         } else {
-            needed += Manifest.permission.ACCESS_FINE_LOCATION
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
-            needed += Manifest.permission.POST_NOTIFICATIONS
-        val miss = needed.filter {
-            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
-        }
-        if (miss.isEmpty()) ensureBluetoothEnabled()
-        else permissionLauncher.launch(miss.toTypedArray())
+            needed += Manifest.permission.ACCESS_FINE_LOCATION        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) needed += Manifest.permission.POST_NOTIFICATIONS
+        val miss = needed.filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
+        if (miss.isEmpty()) ensureBluetoothEnabled() else permissionLauncher.launch(miss.toTypedArray())
     }
 
     private fun ensureBluetoothEnabled() {
         val adapter = (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager).adapter
-        if (adapter?.isEnabled == true) vm.connect()
-        else enableBtLauncher.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
+        if (adapter?.isEnabled == true) vm.connect() else enableBtLauncher.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
     }
 
     override fun onDestroy() {
@@ -80,6 +68,3 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
     }
 }
-
-private inline fun <reified VM : androidx.lifecycle.ViewModel> ComponentActivity.viewModels() =
-    lazy { androidx.lifecycle.ViewModelProvider(this)[VM::class.java] }

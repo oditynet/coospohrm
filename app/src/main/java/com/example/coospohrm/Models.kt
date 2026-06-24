@@ -30,6 +30,40 @@ data class TrainingSession(
     val userAge: Int = 30,
 )
 
+data class SleepSession(
+    val id: String = UUID.randomUUID().toString(),
+    val date: String = SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault()).format(Date()),
+    val startTime: String = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date()),
+    val endTime: String = "",
+    val durationMinutes: Int = 0,
+    val minHR: Int = 0,
+    val maxHR: Int = 0,
+    val avgHR: Int = 0,
+    val restingHR: Int = 0,
+    val awakenings: Int = 0,
+    val awakeningTimes: List<String> = emptyList(),
+    val qualityName: String = SleepQuality.UNKNOWN.displayName,
+    val qualityDescription: String = SleepQuality.UNKNOWN.description,
+    val hrData: List<Int> = emptyList(),
+) {
+    val quality: SleepQuality
+        get() = when (qualityName) {
+            "Отличный" -> SleepQuality.EXCELLENT
+            "Хороший" -> SleepQuality.GOOD
+            "Средний" -> SleepQuality.FAIR
+            "Плохой" -> SleepQuality.POOR
+            else -> SleepQuality.UNKNOWN
+        }
+}
+
+enum class SleepQuality(val displayName: String, val description: String) {
+    EXCELLENT("Отличный", "Глубокий восстановительный сон"),
+    GOOD("Хороший", "Нормальный сон"),
+    FAIR("Средний", "Поверхностный сон"),
+    POOR("Плохой", "Стресс или переутомление"),
+    UNKNOWN("Неизвестно", "")
+}
+
 enum class ActivityType(val met: Double, val displayName: String) {
     CYCLING_LIGHT(4.0, "🚴 Велосипед, прогулка"),
     CYCLING_MODERATE(8.0, "🚴 Велосипед, умеренно"),
@@ -79,6 +113,8 @@ data class HeartRateZones(
 sealed class Screen {
     data object Main : Screen()
     data object Training : Screen()
+    data object Sleep : Screen()
     data object Settings : Screen()
     data class SessionDetail(val sessionId: String) : Screen()
+    data class SleepDetail(val sessionId: String) : Screen()
 }

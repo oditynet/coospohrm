@@ -22,7 +22,6 @@ data class BleState(
             "$manufacturer $model" else "Coospo H9Z"
 }
 
-/** Любая GATT-операция помещается в очередь; следующая выполняется только когда пришёл её callback. */
 private sealed class GattOp {
     data class Read(val ch: BluetoothGattCharacteristic) : GattOp()
     data class EnableNotify(val ch: BluetoothGattCharacteristic) : GattOp()
@@ -41,6 +40,8 @@ class BleHeartRateManager(
 
     private val _state = MutableStateFlow(BleState())
     val state: StateFlow<BleState> = _state.asStateFlow()
+
+    fun getCurrentHR(): Int = _state.value.heartRate
 
     @SuppressLint("MissingPermission")
     fun connectToPairedDevice() {
@@ -74,7 +75,6 @@ class BleHeartRateManager(
 
     private fun update(transform: (BleState) -> BleState) { _state.value = transform(_state.value) }
 
-    // ---------- очередь ----------
     @SuppressLint("MissingPermission")
     private fun enqueue(op: GattOp) {
         opQueue.add(op); runNext()
@@ -112,6 +112,12 @@ class BleHeartRateManager(
     private val callback = object : BluetoothGattCallback() {
         @SuppressLint("MissingPermission")
         override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
+            if (status == 133) {
+                gatt?.close(); gatt = null
+                opQueue.clear(); opInFlight = false
+                update { BleState(statusText = "Ошибка подключения") }
+                return
+            }
             when (newState) {
                 BluetoothProfile.STATE_CONNECTED -> {
                     update { it.copy(isConnected = true, statusText = "Подключено!") }
@@ -144,7 +150,6 @@ class BleHeartRateManager(
             opInFlight = false; runNext()
         }
 
-        // API 33+
         override fun onCharacteristicRead(
             g: BluetoothGatt, ch: BluetoothGattCharacteristic, value: ByteArray, status: Int
         ) {
