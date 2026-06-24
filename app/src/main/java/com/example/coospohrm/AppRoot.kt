@@ -1,6 +1,7 @@
 package com.example.coospohrm
 
 import android.content.Context
+import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -39,6 +40,11 @@ fun AppRoot(vm: HeartRateViewModel) {
     var pendingDelete by remember { mutableStateOf<TrainingSession?>(null) }
     var pendingSleepDelete by remember { mutableStateOf<SleepSession?>(null) }
 
+    // Обновление
+    val updateManager = remember { UpdateManager(ctx) }
+    var showUpdateDialog by remember { mutableStateOf(false) }
+    var updateInfo by remember { mutableStateOf<UpdateInfo?>(null) }
+
     when (val s = screen) {
         Screen.Main -> MainScreen(
             ble = ble, zones = zones, history = history, sleepHistory = sleepHistory,
@@ -67,6 +73,20 @@ fun AppRoot(vm: HeartRateViewModel) {
             zones = zones, weight = weight, age = age,
             onSave = { z, w, a -> vm.saveSettings(z, w, a); vm.navigate(Screen.Main) },
             onBack = { vm.navigate(Screen.Main) },
+            onCheckUpdate = {
+                updateManager.checkForUpdate(
+                    onAvailable = { info ->
+                        updateInfo = info
+                        showUpdateDialog = true
+                    },
+                    onNoUpdate = {
+                        Toast.makeText(ctx, "✅ У вас актуальная версия", Toast.LENGTH_SHORT).show()
+                    },
+                    onError = { msg ->
+                        Toast.makeText(ctx, "❌ Ошибка проверки: $msg", Toast.LENGTH_LONG).show()
+                    }
+                )
+            }
         )
         is Screen.SessionDetail -> {
             val session = history.firstOrNull { it.id == s.sessionId }
@@ -90,11 +110,11 @@ fun AppRoot(vm: HeartRateViewModel) {
 
     if (showSaveDialog) {
         val cur = training
-        val duration = ((System.currentTimeMillis() - cur.startedAtMs) / 1000).toInt()
+        val activeDuration = cur.activeSeconds
         AlertDialog(
             onDismissRequest = { showSaveDialog = false },
             title = { Text("Сохранить тренировку?") },
-            text = { Text("Тип: ${cur.activity.displayName}\nДлительность: ${formatDuration(duration)}\nМакс BPM: ${cur.maxBPM}\nКалории: ${cur.totalCalories.roundToInt()} ккал") },
+            text = { Text("Тип: ${cur.activity.displayName}\nАктивное время: ${formatDuration(activeDuration)}\nМакс BPM: ${cur.maxBPM}\nКалории: ${cur.totalCalories.roundToInt()} ккал") },
             confirmButton = { TextButton(onClick = { showSaveDialog = false; vm.saveTrainingAndStop(); HeartRateForegroundService.stop(ctx) }) { Text("Сохранить") } },
             dismissButton = { TextButton(onClick = { showSaveDialog = false; vm.stopTraining(); HeartRateForegroundService.stop(ctx) }) { Text("Отмена") } },
         )
@@ -127,6 +147,39 @@ fun AppRoot(vm: HeartRateViewModel) {
             text = { Text("Действие нельзя отменить") },
             confirmButton = { TextButton(onClick = { vm.deleteSleepSession(s.id); pendingSleepDelete = null }) { Text("Удалить", color = Color(0xFFF44336)) } },
             dismissButton = { TextButton(onClick = { pendingSleepDelete = null }) { Text("Отмена") } },
+        )
+    }
+
+    // Диалог обновления
+    if (showUpdateDialog && updateInfo != null) {
+        val info = updateInfo!!
+        AlertDialog(
+            onDismissRequest = { showUpdateDialog = false },
+            title = { Text("Доступна новая версия!") },
+            text = {
+                Column {
+                    Text("Версия: ${info.version}")
+                    Text("Размер: ${info.size / 1024} KB")
+                    if (info.changelog.isNotEmpty()) {
+                        Spacer(Modifier.height(8.dp))
+                        Text("Изменения:", fontWeight = FontWeight.Bold)
+                        Text(info.changelog, fontSize = 13.sp)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showUpdateDialog = false
+                    updateManager.downloadAndInstall(info.downloadUrl)
+                }) {
+                    Text("Скачать и установить", color = Color(0xFF4CAF50))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showUpdateDialog = false }) {
+                    Text("Позже")
+                }
+            }
         )
     }
 }
