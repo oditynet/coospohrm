@@ -19,7 +19,9 @@ Version 1.1: Bug fix
 Version 1.0: Ideas release
 
 <p align="center">
-  <img src="pic1.png" width="45%" />
+  <img src="pic1.png" width="20%" />
   &nbsp;&nbsp;&nbsp;&nbsp;
-  <img src="pic2.png" width="45%" />
+  <img src="pic2.png" width="20%" />
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="pic3.png" width="20%" />
 </p>
