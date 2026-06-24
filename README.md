@@ -8,6 +8,8 @@ Device syncing is done via Bluetooth and after the app is turned on.
 
 #Version
 
+Version 1.4.1: Bug fir for reconnect
+
 Version 1.4: Add Sleep mode
 
 Version 1.3: New technical about calculation cals and bug fig(rotation screen and etc)

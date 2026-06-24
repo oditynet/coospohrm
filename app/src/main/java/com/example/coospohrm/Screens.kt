@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.sp
 import java.util.Locale
 import kotlin.math.roundToInt
 
+
 fun formatDuration(s: Int): String = String.format(Locale.US, "%d:%02d", s / 60, s % 60)
 
 fun formatSleepDuration(minutes: Int): String {
@@ -84,6 +85,7 @@ fun HeartRateChart(hr: List<Int>, hz: HeartRateZones) {
 @Composable
 fun MainScreen(
     ble: BleState, zones: HeartRateZones, history: List<TrainingSession>, sleepHistory: List<SleepSession>,
+    onReconnect: () -> Unit,
     onStartClick: () -> Unit, onSleepClick: () -> Unit, onSessionClick: (TrainingSession) -> Unit,
     onSleepSessionClick: (SleepSession) -> Unit, onSessionDelete: (TrainingSession) -> Unit,
     onSleepDelete: (SleepSession) -> Unit, onSettingsClick: () -> Unit,
@@ -99,6 +101,20 @@ fun MainScreen(
             }
         }
         Text(ble.statusText, fontSize = 12.sp, color = if (ble.isConnected) Color(0xFF4CAF50) else Color.Gray)
+
+        // Кнопка переподключения
+        if (!ble.isConnected) {
+            Spacer(Modifier.height(8.dp))
+            Button(
+                onClick = onReconnect,
+                modifier = Modifier.fillMaxWidth().height(40.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF9800)),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Text("🔄 Переподключиться", fontSize = 14.sp)
+            }
+        }
+
         Spacer(Modifier.height(16.dp))
 
         val zone = if (ble.heartRate > 0) zones.zoneOf(ble.heartRate) else 0; val zc = if (zone > 0) zoneColor(zone) else Color.Gray
@@ -161,17 +177,43 @@ fun MainScreen(
                     } else { Text("Нет записей сна", fontSize = 14.sp, color = Color.Gray) }
                 }
             }
+
         } else {
             Text("История пуста", fontSize = 14.sp, color = Color.Gray)
         }
+        Spacer(Modifier.height(16.dp))
+        Text(
+            "v1.4.1",
+            fontSize = 12.sp,
+            color = Color.Gray.copy(alpha = 0.5f),
+            modifier = Modifier.align(Alignment.CenterHorizontally)
+        )
     }
 }
 
 @Composable
-fun TrainingScreen(ble: BleState, training: TrainingState, zones: HeartRateZones, onStopClick: () -> Unit) {
+fun TrainingScreen(
+    ble: BleState, training: TrainingState, zones: HeartRateZones,
+    onReconnect: () -> Unit,
+    onStopClick: () -> Unit
+) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Text(training.activity.displayName, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color(0xFF4CAF50))
-        Text("ТРЕНИРОВКА", fontSize = 20.sp, fontWeight = FontWeight.Bold); Text(formatDuration(training.durationSeconds), fontSize = 14.sp, color = Color.Gray)
+        Text("ТРЕНИРОВКА", fontSize = 20.sp, fontWeight = FontWeight.Bold); Text(formatDuration(training.activeSeconds), fontSize = 14.sp, color = Color.Gray)
+
+        // Кнопка переподключения
+        if (!ble.isConnected) {
+            Spacer(Modifier.height(8.dp))
+            Button(
+                onClick = onReconnect,
+                modifier = Modifier.fillMaxWidth().height(40.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF9800)),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Text("🔄 Переподключиться", fontSize = 14.sp)
+            }
+        }
+
         Spacer(Modifier.height(12.dp))
         val zone = if (ble.heartRate > 0) zones.zoneOf(ble.heartRate) else 0; val zc = if (zone > 0) zoneColor(zone) else Color.Gray
         Box(Modifier.size(160.dp).clip(CircleShape), Alignment.Center) {
@@ -383,29 +425,17 @@ fun SettingsScreen(zones: HeartRateZones, weight: Float, age: Int, onSave: (Hear
             Text("Настройки", fontSize = 18.sp, fontWeight = FontWeight.Bold)
         }
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 12.dp)) {
-            // Вес
             Card(Modifier.fillMaxWidth().padding(vertical = 4.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFFE3F2FD))) {
                 Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("⚖️ Ваш вес", fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                        Text("Для расчёта калорий", fontSize = 11.sp, color = Color.Gray)
-                    }
-                    OutlinedTextField(value = nWeight, onValueChange = { if (it.length <= 5 && it.all { c -> c.isDigit() || c == '.' }) nWeight = it },
-                        modifier = Modifier.width(90.dp), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                        textStyle = TextStyle(fontSize = 16.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center), singleLine = true)
+                    Column(Modifier.weight(1f)) { Text("⚖️ Ваш вес", fontSize = 16.sp, fontWeight = FontWeight.Bold); Text("Для расчёта калорий", fontSize = 11.sp, color = Color.Gray) }
+                    OutlinedTextField(value = nWeight, onValueChange = { if (it.length <= 5 && it.all { c -> c.isDigit() || c == '.' }) nWeight = it }, modifier = Modifier.width(90.dp), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), textStyle = TextStyle(fontSize = 16.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center), singleLine = true)
                     Text(" кг", fontSize = 14.sp, color = Color.Gray)
                 }
             }
-            // Возраст
             Card(Modifier.fillMaxWidth().padding(vertical = 4.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF8E1))) {
                 Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("🎂 Ваш возраст", fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                        Text("Для maxHR = 220 − возраст", fontSize = 11.sp, color = Color.Gray)
-                    }
-                    OutlinedTextField(value = nAge, onValueChange = { if (it.length <= 3 && it.all { c -> c.isDigit() }) nAge = it },
-                        modifier = Modifier.width(80.dp), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        textStyle = TextStyle(fontSize = 16.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center), singleLine = true)
+                    Column(Modifier.weight(1f)) { Text("🎂 Ваш возраст", fontSize = 16.sp, fontWeight = FontWeight.Bold); Text("Для maxHR = 220 − возраст", fontSize = 11.sp, color = Color.Gray) }
+                    OutlinedTextField(value = nAge, onValueChange = { if (it.length <= 3 && it.all { c -> c.isDigit() }) nAge = it }, modifier = Modifier.width(80.dp), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), textStyle = TextStyle(fontSize = 16.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center), singleLine = true)
                     Text(" лет", fontSize = 14.sp, color = Color.Gray)
                 }
             }
@@ -421,25 +451,18 @@ fun SettingsScreen(zones: HeartRateZones, weight: Float, age: Int, onSave: (Hear
                 Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.size(12.dp).clip(CircleShape).background(zoneColor(5)))
                     Spacer(Modifier.width(8.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text("Зона 5: Максимальная ⚠️", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = zoneColor(5))
-                        Text(zoneDesc(5), fontSize = 10.sp, color = Color.Gray)
-                    }
+                    Column(Modifier.weight(1f)) { Text("Зона 5: Максимальная ⚠️", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = zoneColor(5)); Text(zoneDesc(5), fontSize = 10.sp, color = Color.Gray) }
                     Text("$nz4 - 200", fontSize = 14.sp, color = Color.Gray)
                 }
             }
 
             Spacer(Modifier.height(16.dp))
             Button(onClick = {
-                val v1 = nz1.toIntOrNull(); val v2 = nz2.toIntOrNull()
-                val v3 = nz3.toIntOrNull(); val v4 = nz4.toIntOrNull()
+                val v1 = nz1.toIntOrNull(); val v2 = nz2.toIntOrNull(); val v3 = nz3.toIntOrNull(); val v4 = nz4.toIntOrNull()
                 val w = nWeight.toFloatOrNull(); val a = nAge.toIntOrNull()
-                if (v1 != null && v2 != null && v3 != null && v4 != null && w != null && a != null &&
-                    v1 < v2 && v2 < v3 && v3 < v4 && v1 in 50..200 && v4 in 60..220 && w in 20f..300f && a in 5..120
-                ) onSave(HeartRateZones(v1, v2, v3, v4), w, a)
-            }, modifier = Modifier.fillMaxWidth().height(48.dp)) {
-                Text("СОХРАНИТЬ", fontSize = 16.sp, fontWeight = FontWeight.Bold)
-            }
+                if (v1 != null && v2 != null && v3 != null && v4 != null && w != null && a != null && v1 < v2 && v2 < v3 && v3 < v4 && v1 in 50..200 && v4 in 60..220 && w in 20f..300f && a in 5..120)
+                    onSave(HeartRateZones(v1, v2, v3, v4), w, a)
+            }, modifier = Modifier.fillMaxWidth().height(48.dp)) { Text("СОХРАНИТЬ", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
             Spacer(Modifier.height(24.dp))
         }
     }
@@ -451,14 +474,9 @@ private fun ZoneRow(z: Int, name: String, prev: String, value: String, onChange:
         Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(12.dp).clip(CircleShape).background(zoneColor(z)))
             Spacer(Modifier.width(8.dp))
-            Column(Modifier.weight(1f)) {
-                Text("Зона $z: $name", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = zoneColor(z))
-                Text(zoneDesc(z), fontSize = 10.sp, color = Color.Gray)
-            }
+            Column(Modifier.weight(1f)) { Text("Зона $z: $name", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = zoneColor(z)); Text(zoneDesc(z), fontSize = 10.sp, color = Color.Gray) }
             Text(prev, fontSize = 14.sp)
-            OutlinedTextField(value = value, onValueChange = { if (it.length <= 3 && it.all { c -> c.isDigit() }) onChange(it) },
-                modifier = Modifier.width(72.dp), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                textStyle = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center), singleLine = true)
+            OutlinedTextField(value = value, onValueChange = { if (it.length <= 3 && it.all { c -> c.isDigit() }) onChange(it) }, modifier = Modifier.width(72.dp), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), textStyle = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center), singleLine = true)
         }
     }
 }

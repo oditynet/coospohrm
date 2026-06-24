@@ -42,6 +42,7 @@ fun AppRoot(vm: HeartRateViewModel) {
     when (val s = screen) {
         Screen.Main -> MainScreen(
             ble = ble, zones = zones, history = history, sleepHistory = sleepHistory,
+            onReconnect = { vm.connect() },
             onStartClick = { showActivityDialog = true },
             onSleepClick = {
                 vm.startSleepMode()
@@ -55,6 +56,7 @@ fun AppRoot(vm: HeartRateViewModel) {
         )
         Screen.Training -> TrainingScreen(
             ble = ble, training = training, zones = zones,
+            onReconnect = { vm.connect() },
             onStopClick = { showSaveDialog = true }
         )
         Screen.Sleep -> SleepScreen(

@@ -4,6 +4,8 @@ import android.annotation.SuppressLint
 import android.bluetooth.*
 import android.content.Context
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -34,6 +36,7 @@ class BleHeartRateManager(
     private val adapter: BluetoothAdapter? =
         (appContext.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter
     private var gatt: BluetoothGatt? = null
+    private var lastConnectedDevice: BluetoothDevice? = null
 
     private val opQueue = ArrayDeque<GattOp>()
     private var opInFlight = false
@@ -41,13 +44,41 @@ class BleHeartRateManager(
     private val _state = MutableStateFlow(BleState())
     val state: StateFlow<BleState> = _state.asStateFlow()
 
+    private val handler = Handler(Looper.getMainLooper())
+    private var isReconnecting = false
+
+    private val reconnectRunnable = object : Runnable {
+        override fun run() {
+            if (!isReconnecting) return
+            connectToPairedDevice()
+            handler.postDelayed(this, 5000) // Каждые 5 секунд
+        }
+    }
+
     fun getCurrentHR(): Int = _state.value.heartRate
 
     @SuppressLint("MissingPermission")
     fun connectToPairedDevice() {
         val a = adapter ?: run { update { it.copy(statusText = "Bluetooth недоступен") }; return }
         if (!a.isEnabled) { update { it.copy(statusText = "Включите Bluetooth") }; return }
+
+        // Если уже подключены - не переподключаемся
+        if (_state.value.isConnected && gatt != null) return
+
         update { it.copy(statusText = "Поиск устройства...") }
+
+        // Пробуем сохраненное устройство
+        if (lastConnectedDevice != null) {
+            val device = lastConnectedDevice!!
+            update { it.copy(statusText = "Подключение к ${device.name}...") }
+            try {
+                gatt?.close()
+                gatt = device.connectGatt(appContext, false, callback, BluetoothDevice.TRANSPORT_LE)
+                return
+            } catch (_: SecurityException) {}
+        }
+
+        // Ищем в сопряженных
         val device = try {
             a.bondedDevices?.firstOrNull { d ->
                 val n = d.name ?: ""
@@ -55,7 +86,12 @@ class BleHeartRateManager(
             }
         } catch (_: SecurityException) { null }
 
-        if (device == null) { update { it.copy(statusText = "Спарьте H9Z в настройках Bluetooth") }; return }
+        if (device == null) {
+            update { it.copy(statusText = "H9Z не найден") }
+            return
+        }
+
+        lastConnectedDevice = device
         update { it.copy(statusText = "Подключение к ${device.name}...") }
         try {
             gatt?.close()
@@ -67,10 +103,23 @@ class BleHeartRateManager(
 
     @SuppressLint("MissingPermission")
     fun disconnect() {
+        stopReconnect()
         try { gatt?.disconnect(); gatt?.close() } catch (_: SecurityException) {}
         gatt = null
         opQueue.clear(); opInFlight = false
         update { BleState(statusText = "Отключено") }
+    }
+
+    fun startReconnect() {
+        if (isReconnecting) return
+        isReconnecting = true
+        handler.removeCallbacks(reconnectRunnable)
+        handler.post(reconnectRunnable)
+    }
+
+    fun stopReconnect() {
+        isReconnecting = false
+        handler.removeCallbacks(reconnectRunnable)
     }
 
     private fun update(transform: (BleState) -> BleState) { _state.value = transform(_state.value) }
@@ -115,17 +164,20 @@ class BleHeartRateManager(
             if (status == 133) {
                 gatt?.close(); gatt = null
                 opQueue.clear(); opInFlight = false
-                update { BleState(statusText = "Ошибка подключения") }
+                update { it.copy(isConnected = false, statusText = "Ошибка подключения") }
+                startReconnect()
                 return
             }
             when (newState) {
                 BluetoothProfile.STATE_CONNECTED -> {
+                    stopReconnect()
                     update { it.copy(isConnected = true, statusText = "Подключено!") }
                     try { g.discoverServices() } catch (_: SecurityException) {}
                 }
                 BluetoothProfile.STATE_DISCONNECTED -> {
                     opQueue.clear(); opInFlight = false
-                    update { BleState(statusText = "Отключено") }
+                    update { it.copy(isConnected = false, statusText = "Отключено. Переподключение...", heartRate = 0) }
+                    startReconnect()
                 }
             }
         }
@@ -150,25 +202,20 @@ class BleHeartRateManager(
             opInFlight = false; runNext()
         }
 
-        override fun onCharacteristicRead(
-            g: BluetoothGatt, ch: BluetoothGattCharacteristic, value: ByteArray, status: Int
-        ) {
+        override fun onCharacteristicRead(g: BluetoothGatt, ch: BluetoothGattCharacteristic, value: ByteArray, status: Int) {
             handleRead(ch, value); opInFlight = false; runNext()
         }
         @Suppress("DEPRECATION")
-        override fun onCharacteristicRead(
-            g: BluetoothGatt, ch: BluetoothGattCharacteristic, status: Int
-        ) {
+        override fun onCharacteristicRead(g: BluetoothGatt, ch: BluetoothGattCharacteristic, status: Int) {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
                 handleRead(ch, ch.value ?: ByteArray(0))
             }
             opInFlight = false; runNext()
         }
 
-        override fun onCharacteristicChanged(
-            g: BluetoothGatt, ch: BluetoothGattCharacteristic, value: ByteArray
-        ) { handleChanged(ch, value) }
-
+        override fun onCharacteristicChanged(g: BluetoothGatt, ch: BluetoothGattCharacteristic, value: ByteArray) {
+            handleChanged(ch, value)
+        }
         @Suppress("DEPRECATION")
         override fun onCharacteristicChanged(g: BluetoothGatt, ch: BluetoothGattCharacteristic) {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
