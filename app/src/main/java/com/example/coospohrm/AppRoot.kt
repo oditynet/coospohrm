@@ -28,10 +28,12 @@ fun AppRoot(vm: HeartRateViewModel) {
     val zones by vm.zones.collectAsStateWithLifecycle()
     val weight by vm.weight.collectAsStateWithLifecycle()
     val age by vm.age.collectAsStateWithLifecycle()
+    val isMale by vm.isMale.collectAsStateWithLifecycle()
     val history by vm.history.collectAsStateWithLifecycle()
     val sleepHistory by vm.sleepHistory.collectAsStateWithLifecycle()
     val training by vm.training.collectAsStateWithLifecycle()
     val sleepSession by vm.sleepSession.collectAsStateWithLifecycle()
+    val biohackingData by vm.biohackingData.collectAsStateWithLifecycle()
     val ctx = LocalContext.current
 
     var showActivityDialog by remember { mutableStateOf(false) }
@@ -40,7 +42,6 @@ fun AppRoot(vm: HeartRateViewModel) {
     var pendingDelete by remember { mutableStateOf<TrainingSession?>(null) }
     var pendingSleepDelete by remember { mutableStateOf<SleepSession?>(null) }
 
-    // Обновление
     val updateManager = remember { UpdateManager(ctx) }
     var showUpdateDialog by remember { mutableStateOf(false) }
     var updateInfo by remember { mutableStateOf<UpdateInfo?>(null) }
@@ -48,6 +49,7 @@ fun AppRoot(vm: HeartRateViewModel) {
     when (val s = screen) {
         Screen.Main -> MainScreen(
             ble = ble, zones = zones, history = history, sleepHistory = sleepHistory,
+            biohackingData = biohackingData,
             onReconnect = { vm.connect() },
             onStartClick = { showActivityDialog = true },
             onSleepClick = {
@@ -70,21 +72,14 @@ fun AppRoot(vm: HeartRateViewModel) {
             onStop = { showSleepStopDialog = true }
         )
         Screen.Settings -> SettingsScreen(
-            zones = zones, weight = weight, age = age,
-            onSave = { z, w, a -> vm.saveSettings(z, w, a); vm.navigate(Screen.Main) },
+            zones = zones, weight = weight, age = age, isMale = isMale,
+            onSave = { z, w, a, m -> vm.saveSettings(z, w, a, m); vm.navigate(Screen.Main) },
             onBack = { vm.navigate(Screen.Main) },
             onCheckUpdate = {
                 updateManager.checkForUpdate(
-                    onAvailable = { info ->
-                        updateInfo = info
-                        showUpdateDialog = true
-                    },
-                    onNoUpdate = {
-                        Toast.makeText(ctx, "✅ У вас актуальная версия", Toast.LENGTH_SHORT).show()
-                    },
-                    onError = { msg ->
-                        Toast.makeText(ctx, "❌ Ошибка проверки: $msg", Toast.LENGTH_LONG).show()
-                    }
+                    onAvailable = { info -> updateInfo = info; showUpdateDialog = true },
+                    onNoUpdate = { Toast.makeText(ctx, "✅ У вас актуальная версия", Toast.LENGTH_SHORT).show() },
+                    onError = { msg -> Toast.makeText(ctx, "❌ Ошибка: $msg", Toast.LENGTH_LONG).show() }
                 )
             }
         )
@@ -99,112 +94,66 @@ fun AppRoot(vm: HeartRateViewModel) {
     }
 
     if (showActivityDialog) ActivityPickerDialog(
-        current = training.activity,
-        onDismiss = { showActivityDialog = false },
+        current = training.activity, onDismiss = { showActivityDialog = false },
         onPick = {
-            showActivityDialog = false
-            vm.selectActivityAndStart(it)
+            showActivityDialog = false; vm.selectActivityAndStart(it)
             HeartRateForegroundService.start(ctx, "Тренировка: ${it.displayName}", "Запись пульса…")
-        },
+        }
     )
 
     if (showSaveDialog) {
         val cur = training
-        val activeDuration = cur.activeSeconds
-        AlertDialog(
-            onDismissRequest = { showSaveDialog = false },
-            title = { Text("Сохранить тренировку?") },
-            text = { Text("Тип: ${cur.activity.displayName}\nАктивное время: ${formatDuration(activeDuration)}\nМакс BPM: ${cur.maxBPM}\nКалории: ${cur.totalCalories.roundToInt()} ккал") },
+        AlertDialog(onDismissRequest = { showSaveDialog = false }, title = { Text("Сохранить тренировку?") },
+            text = { Text("Тип: ${cur.activity.displayName}\nАктивное время: ${formatDuration(cur.activeSeconds)}\nМакс BPM: ${cur.maxBPM}\nКалории: ${cur.totalCalories.roundToInt()} ккал") },
             confirmButton = { TextButton(onClick = { showSaveDialog = false; vm.saveTrainingAndStop(); HeartRateForegroundService.stop(ctx) }) { Text("Сохранить") } },
-            dismissButton = { TextButton(onClick = { showSaveDialog = false; vm.stopTraining(); HeartRateForegroundService.stop(ctx) }) { Text("Отмена") } },
+            dismissButton = { TextButton(onClick = { showSaveDialog = false; vm.stopTraining(); HeartRateForegroundService.stop(ctx) }) { Text("Отмена") } }
         )
     }
 
     if (showSleepStopDialog) {
-        AlertDialog(
-            onDismissRequest = { showSleepStopDialog = false },
-            title = { Text("Завершить сон?") },
+        AlertDialog(onDismissRequest = { showSleepStopDialog = false }, title = { Text("Завершить сон?") },
             text = { Text("Сохранить данные о сне?") },
             confirmButton = { TextButton(onClick = { showSleepStopDialog = false; vm.stopSleepMode(); HeartRateForegroundService.stop(ctx) }) { Text("Сохранить") } },
-            dismissButton = { TextButton(onClick = { showSleepStopDialog = false }) { Text("Продолжить") } },
+            dismissButton = { TextButton(onClick = { showSleepStopDialog = false }) { Text("Продолжить") } }
         )
     }
 
     pendingDelete?.let { s ->
-        AlertDialog(
-            onDismissRequest = { pendingDelete = null },
-            title = { Text("Удалить тренировку?") },
+        AlertDialog(onDismissRequest = { pendingDelete = null }, title = { Text("Удалить тренировку?") },
             text = { Text("Действие нельзя отменить") },
             confirmButton = { TextButton(onClick = { vm.deleteSession(s.id); pendingDelete = null }) { Text("Удалить", color = Color(0xFFF44336)) } },
-            dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("Отмена") } },
+            dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("Отмена") } }
         )
     }
 
     pendingSleepDelete?.let { s ->
-        AlertDialog(
-            onDismissRequest = { pendingSleepDelete = null },
-            title = { Text("Удалить запись сна?") },
+        AlertDialog(onDismissRequest = { pendingSleepDelete = null }, title = { Text("Удалить запись сна?") },
             text = { Text("Действие нельзя отменить") },
             confirmButton = { TextButton(onClick = { vm.deleteSleepSession(s.id); pendingSleepDelete = null }) { Text("Удалить", color = Color(0xFFF44336)) } },
-            dismissButton = { TextButton(onClick = { pendingSleepDelete = null }) { Text("Отмена") } },
+            dismissButton = { TextButton(onClick = { pendingSleepDelete = null }) { Text("Отмена") } }
         )
     }
 
-    // Диалог обновления
     if (showUpdateDialog && updateInfo != null) {
         val info = updateInfo!!
-        AlertDialog(
-            onDismissRequest = { showUpdateDialog = false },
-            title = { Text("Доступна новая версия!") },
-            text = {
-                Column {
-                    Text("Версия: ${info.version}")
-                    Text("Размер: ${info.size / 1024} KB")
-                    if (info.changelog.isNotEmpty()) {
-                        Spacer(Modifier.height(8.dp))
-                        Text("Изменения:", fontWeight = FontWeight.Bold)
-                        Text(info.changelog, fontSize = 13.sp)
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    showUpdateDialog = false
-                    updateManager.downloadAndInstall(info.downloadUrl)
-                }) {
-                    Text("Скачать и установить", color = Color(0xFF4CAF50))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showUpdateDialog = false }) {
-                    Text("Позже")
-                }
-            }
+        AlertDialog(onDismissRequest = { showUpdateDialog = false }, title = { Text("🚀 Доступна новая версия!") },
+            text = { Column { Text("Версия: ${info.version}"); Text("Размер: ${info.size / 1024} KB"); if (info.changelog.isNotEmpty()) { Spacer(Modifier.height(8.dp)); Text("Изменения:", fontWeight = FontWeight.Bold); Text(info.changelog, fontSize = 13.sp) } } },
+            confirmButton = { TextButton(onClick = { showUpdateDialog = false; updateManager.downloadAndInstall(info.downloadUrl) }) { Text("📥 Скачать и установить", color = Color(0xFF4CAF50)) } },
+            dismissButton = { TextButton(onClick = { showUpdateDialog = false }) { Text("Позже") } }
         )
     }
 }
 
 @Composable
 private fun ActivityPickerDialog(current: ActivityType, onDismiss: () -> Unit, onPick: (ActivityType) -> Unit) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Выберите тип тренировки") },
-        text = {
-            LazyColumn(Modifier.height(400.dp)) {
-                items(ActivityType.entries.toList()) { a ->
-                    Card(
-                        Modifier.fillMaxWidth().padding(vertical = 2.dp).clickable { onPick(a) },
-                        colors = CardDefaults.cardColors(containerColor = if (a == current) Color(0xFF4CAF50).copy(alpha = 0.1f) else Color.Transparent)
-                    ) {
-                        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text(a.displayName, Modifier.weight(1f), fontSize = 14.sp)
-                            Text("MET: ${a.met}", fontSize = 12.sp, color = Color.Gray)
-                            if (a == current) Icon(Icons.Default.Check, null, tint = Color(0xFF4CAF50), modifier = Modifier.size(20.dp))
-                        }
-                    }
+    AlertDialog(onDismissRequest = onDismiss, title = { Text("Выберите тип тренировки") },
+        text = { LazyColumn(Modifier.height(400.dp)) { items(ActivityType.entries.toList()) { a ->
+            Card(Modifier.fillMaxWidth().padding(vertical = 2.dp).clickable { onPick(a) },
+                colors = CardDefaults.cardColors(containerColor = if (a == current) Color(0xFF4CAF50).copy(alpha = 0.1f) else Color.Transparent)) {
+                Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(a.displayName, Modifier.weight(1f), fontSize = 14.sp); Text("MET: ${a.met}", fontSize = 12.sp, color = Color.Gray)
+                    if (a == current) Icon(Icons.Default.Check, null, tint = Color(0xFF4CAF50), modifier = Modifier.size(20.dp))
                 }
             }
-        },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Закрыть") } },
-    )
+        } } }, confirmButton = { TextButton(onClick = onDismiss) { Text("Закрыть") } })
 }

@@ -4,11 +4,30 @@ import android.content.Context
 import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import kotlin.apply
 
 class TrainingRepository(context: Context) {
     private val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     private val gson = Gson()
     private val TAG = "TrainingRepo"
+
+    private  val BIOHACKING_KEY = "biohacking_data"
+
+    fun loadBiohackingData(): BiohackingData {
+        return try {
+            val json = prefs.getString(BIOHACKING_KEY, null) ?: return BiohackingData()
+            gson.fromJson(json, BiohackingData::class.java) ?: BiohackingData()
+        } catch (e: Exception) {
+            Log.e(TAG, "loadBiohackingData error: ${e.message}")
+            BiohackingData()
+        }
+    }
+
+    fun saveBiohackingData(data: BiohackingData) {
+        val json = gson.toJson(data)
+        prefs.edit().putString(BIOHACKING_KEY, json).apply()
+        Log.d(TAG, "saveBiohackingData: сохранено")
+    }
 
     companion object {
         private const val PREFS_NAME = "training_history"
@@ -17,6 +36,7 @@ class TrainingRepository(context: Context) {
         private const val ZONES_KEY = "heart_rate_zones"
         private const val WEIGHT_KEY = "user_weight"
         private const val AGE_KEY = "user_age"
+        private const val GENDER_KEY = "user_gender"
     }
 
     fun loadHistory(): List<TrainingSession> {
@@ -67,6 +87,10 @@ class TrainingRepository(context: Context) {
 
     fun loadWeight(): Float = prefs.getFloat(WEIGHT_KEY, 70f)
     fun saveWeight(w: Float) = prefs.edit().putFloat(WEIGHT_KEY, w).apply()
+
     fun loadAge(): Int = prefs.getInt(AGE_KEY, 30)
     fun saveAge(a: Int) = prefs.edit().putInt(AGE_KEY, a).apply()
+
+    fun loadGender(): Boolean = prefs.getBoolean(GENDER_KEY, true)
+    fun saveGender(isMale: Boolean) = prefs.edit().putBoolean(GENDER_KEY, isMale).apply()
 }

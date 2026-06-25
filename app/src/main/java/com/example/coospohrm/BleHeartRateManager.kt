@@ -31,7 +31,7 @@ private sealed class GattOp {
 
 class BleHeartRateManager(
     private val appContext: Context,
-    private val onHeartRate: (Int) -> Unit,
+    private val onHeartRate: (Int, List<Double>) -> Unit,
 ) {
     private val adapter: BluetoothAdapter? =
         (appContext.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter
@@ -51,7 +51,7 @@ class BleHeartRateManager(
         override fun run() {
             if (!isReconnecting) return
             connectToPairedDevice()
-            handler.postDelayed(this, 5000) // Каждые 5 секунд
+            handler.postDelayed(this, 5000)
         }
     }
 
@@ -61,13 +61,9 @@ class BleHeartRateManager(
     fun connectToPairedDevice() {
         val a = adapter ?: run { update { it.copy(statusText = "Bluetooth недоступен") }; return }
         if (!a.isEnabled) { update { it.copy(statusText = "Включите Bluetooth") }; return }
-
-        // Если уже подключены - не переподключаемся
         if (_state.value.isConnected && gatt != null) return
-
         update { it.copy(statusText = "Поиск устройства...") }
 
-        // Пробуем сохраненное устройство
         if (lastConnectedDevice != null) {
             val device = lastConnectedDevice!!
             update { it.copy(statusText = "Подключение к ${device.name}...") }
@@ -78,7 +74,6 @@ class BleHeartRateManager(
             } catch (_: SecurityException) {}
         }
 
-        // Ищем в сопряженных
         val device = try {
             a.bondedDevices?.firstOrNull { d ->
                 val n = d.name ?: ""
@@ -86,11 +81,7 @@ class BleHeartRateManager(
             }
         } catch (_: SecurityException) { null }
 
-        if (device == null) {
-            update { it.copy(statusText = "H9Z не найден") }
-            return
-        }
-
+        if (device == null) { update { it.copy(statusText = "H9Z не найден") }; return }
         lastConnectedDevice = device
         update { it.copy(statusText = "Подключение к ${device.name}...") }
         try {
@@ -105,8 +96,7 @@ class BleHeartRateManager(
     fun disconnect() {
         stopReconnect()
         try { gatt?.disconnect(); gatt?.close() } catch (_: SecurityException) {}
-        gatt = null
-        opQueue.clear(); opInFlight = false
+        gatt = null; opQueue.clear(); opInFlight = false
         update { BleState(statusText = "Отключено") }
     }
 
@@ -125,9 +115,7 @@ class BleHeartRateManager(
     private fun update(transform: (BleState) -> BleState) { _state.value = transform(_state.value) }
 
     @SuppressLint("MissingPermission")
-    private fun enqueue(op: GattOp) {
-        opQueue.add(op); runNext()
-    }
+    private fun enqueue(op: GattOp) { opQueue.add(op); runNext() }
 
     @SuppressLint("MissingPermission")
     private fun runNext() {
@@ -140,33 +128,25 @@ class BleHeartRateManager(
                 is GattOp.Read -> g.readCharacteristic(op.ch)
                 is GattOp.EnableNotify -> {
                     g.setCharacteristicNotification(op.ch, true)
-                    val desc = op.ch.getDescriptor(BleUuids.CCCD) ?: run {
-                        opInFlight = false; runNext(); return
-                    }
+                    val desc = op.ch.getDescriptor(BleUuids.CCCD) ?: run { opInFlight = false; runNext(); return }
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                         g.writeDescriptor(desc, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
                     } else {
-                        @Suppress("DEPRECATION")
-                        desc.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-                        @Suppress("DEPRECATION")
-                        g.writeDescriptor(desc)
+                        @Suppress("DEPRECATION") desc.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                        @Suppress("DEPRECATION") g.writeDescriptor(desc)
                     }
                 }
             }
-        } catch (_: SecurityException) {
-            opInFlight = false; runNext()
-        }
+        } catch (_: SecurityException) { opInFlight = false; runNext() }
     }
 
     private val callback = object : BluetoothGattCallback() {
         @SuppressLint("MissingPermission")
         override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
             if (status == 133) {
-                gatt?.close(); gatt = null
-                opQueue.clear(); opInFlight = false
+                gatt?.close(); gatt = null; opQueue.clear(); opInFlight = false
                 update { it.copy(isConnected = false, statusText = "Ошибка подключения") }
-                startReconnect()
-                return
+                startReconnect(); return
             }
             when (newState) {
                 BluetoothProfile.STATE_CONNECTED -> {
@@ -185,12 +165,8 @@ class BleHeartRateManager(
         @SuppressLint("MissingPermission")
         override fun onServicesDiscovered(g: BluetoothGatt, status: Int) {
             if (status != BluetoothGatt.GATT_SUCCESS) return
-            g.getService(BleUuids.HEART_RATE_SERVICE)
-                ?.getCharacteristic(BleUuids.HEART_RATE_MEASUREMENT)
-                ?.let { enqueue(GattOp.EnableNotify(it)) }
-            g.getService(BleUuids.BATTERY_SERVICE)
-                ?.getCharacteristic(BleUuids.BATTERY_LEVEL)
-                ?.let { enqueue(GattOp.Read(it)); enqueue(GattOp.EnableNotify(it)) }
+            g.getService(BleUuids.HEART_RATE_SERVICE)?.getCharacteristic(BleUuids.HEART_RATE_MEASUREMENT)?.let { enqueue(GattOp.EnableNotify(it)) }
+            g.getService(BleUuids.BATTERY_SERVICE)?.getCharacteristic(BleUuids.BATTERY_LEVEL)?.let { enqueue(GattOp.Read(it)); enqueue(GattOp.EnableNotify(it)) }
             g.getService(BleUuids.DEVICE_INFO_SERVICE)?.let { dis ->
                 dis.getCharacteristic(BleUuids.MANUFACTURER_NAME)?.let { enqueue(GattOp.Read(it)) }
                 dis.getCharacteristic(BleUuids.MODEL_NUMBER)?.let { enqueue(GattOp.Read(it)) }
@@ -198,36 +174,25 @@ class BleHeartRateManager(
             update { it.copy(statusText = "Мониторинг...") }
         }
 
-        override fun onDescriptorWrite(g: BluetoothGatt, d: BluetoothGattDescriptor, status: Int) {
-            opInFlight = false; runNext()
-        }
+        override fun onDescriptorWrite(g: BluetoothGatt, d: BluetoothGattDescriptor, status: Int) { opInFlight = false; runNext() }
 
-        override fun onCharacteristicRead(g: BluetoothGatt, ch: BluetoothGattCharacteristic, value: ByteArray, status: Int) {
-            handleRead(ch, value); opInFlight = false; runNext()
-        }
+        override fun onCharacteristicRead(g: BluetoothGatt, ch: BluetoothGattCharacteristic, value: ByteArray, status: Int) { handleRead(ch, value); opInFlight = false; runNext() }
         @Suppress("DEPRECATION")
         override fun onCharacteristicRead(g: BluetoothGatt, ch: BluetoothGattCharacteristic, status: Int) {
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-                handleRead(ch, ch.value ?: ByteArray(0))
-            }
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) { handleRead(ch, ch.value ?: ByteArray(0)) }
             opInFlight = false; runNext()
         }
 
-        override fun onCharacteristicChanged(g: BluetoothGatt, ch: BluetoothGattCharacteristic, value: ByteArray) {
-            handleChanged(ch, value)
-        }
+        override fun onCharacteristicChanged(g: BluetoothGatt, ch: BluetoothGattCharacteristic, value: ByteArray) { handleChanged(ch, value) }
         @Suppress("DEPRECATION")
         override fun onCharacteristicChanged(g: BluetoothGatt, ch: BluetoothGattCharacteristic) {
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-                handleChanged(ch, ch.value ?: ByteArray(0))
-            }
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) { handleChanged(ch, ch.value ?: ByteArray(0)) }
         }
     }
 
     private fun handleRead(ch: BluetoothGattCharacteristic, v: ByteArray) {
         when (ch.uuid) {
-            BleUuids.BATTERY_LEVEL ->
-                if (v.isNotEmpty()) update { it.copy(batteryLevel = v[0].toInt() and 0xFF) }
+            BleUuids.BATTERY_LEVEL -> if (v.isNotEmpty()) update { it.copy(batteryLevel = v[0].toInt() and 0xFF) }
             BleUuids.MANUFACTURER_NAME -> update { it.copy(manufacturer = String(v).trim()) }
             BleUuids.MODEL_NUMBER -> update { it.copy(model = String(v).trim()) }
         }
@@ -236,24 +201,38 @@ class BleHeartRateManager(
     private fun handleChanged(ch: BluetoothGattCharacteristic, v: ByteArray) {
         when (ch.uuid) {
             BleUuids.HEART_RATE_MEASUREMENT -> {
-                val hr = parseHeartRate(v)
+                val (hr, rr) = parseHeartRateWithRR(v)
                 if (hr > 0) {
                     update { it.copy(heartRate = hr, statusText = "Пульс: $hr BPM") }
-                    onHeartRate(hr)
+                    onHeartRate(hr, rr)
                 }
             }
-            BleUuids.BATTERY_LEVEL ->
-                if (v.isNotEmpty()) update { it.copy(batteryLevel = v[0].toInt() and 0xFF) }
+            BleUuids.BATTERY_LEVEL -> if (v.isNotEmpty()) update { it.copy(batteryLevel = v[0].toInt() and 0xFF) }
         }
     }
 
-    private fun parseHeartRate(d: ByteArray): Int {
-        if (d.size < 2) return 0
+    private fun parseHeartRateWithRR(d: ByteArray): Pair<Int, List<Double>> {
+        if (d.size < 2) return 0 to emptyList()
         return runCatching {
             val flags = d[0].toInt()
-            if ((flags and 0x01) != 0 && d.size >= 3) {
-                (d[1].toInt() and 0xFF) or ((d[2].toInt() and 0xFF) shl 8)
-            } else d[1].toInt() and 0xFF
-        }.getOrDefault(0)
+            var offset = 1
+            val hr = if ((flags and 0x01) != 0 && d.size >= 3) {
+                val value = ((d[1].toInt() and 0xFF) or ((d[2].toInt() and 0xFF) shl 8))
+                offset = 3; value
+            } else {
+                val value = d[1].toInt() and 0xFF
+                offset = 2; value
+            }
+            if ((flags and 0x08) != 0) offset += 2
+            val rrList = mutableListOf<Double>()
+            if ((flags and 0x10) != 0) {
+                while (offset < d.size - 1) {
+                    val rr = ((d[offset].toInt() and 0xFF) or ((d[offset + 1].toInt() and 0xFF) shl 8)) / 1024.0
+                    rrList.add(rr * 1000.0)
+                    offset += 2
+                }
+            }
+            hr to rrList
+        }.getOrDefault(0 to emptyList())
     }
 }

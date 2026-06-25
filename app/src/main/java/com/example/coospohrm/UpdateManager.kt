@@ -35,7 +35,7 @@ class UpdateManager(private val context: Context) {
     companion object {
         private const val TAG = "UpdateManager"
         private const val GITHUB_API = "https://api.github.com/repos/oditynet/coospohrm/releases/latest"
-        private const val CURRENT_VERSION = "1.4.2"
+        private const val CURRENT_VERSION = "1.4.3"
     }
 
     private var downloadId: Long = -1

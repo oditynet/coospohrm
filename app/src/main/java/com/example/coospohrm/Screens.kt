@@ -85,6 +85,7 @@ fun HeartRateChart(hr: List<Int>, hz: HeartRateZones) {
 @Composable
 fun MainScreen(
     ble: BleState, zones: HeartRateZones, history: List<TrainingSession>, sleepHistory: List<SleepSession>,
+    biohackingData: BiohackingData,
     onReconnect: () -> Unit,
     onStartClick: () -> Unit, onSleepClick: () -> Unit, onSessionClick: (TrainingSession) -> Unit,
     onSleepSessionClick: (SleepSession) -> Unit, onSessionDelete: (TrainingSession) -> Unit,
@@ -137,8 +138,9 @@ fun MainScreen(
 
         if (history.isNotEmpty() || sleepHistory.isNotEmpty()) {
             TabRow(selectedTabIndex = selectedTab) {
-                Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("🏋️ Тренировки (${history.size})") })
-                Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("🌙 Сон (${sleepHistory.size})") })
+                Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("Тренировки (${history.size})") })
+                Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("Сон (${sleepHistory.size})") })
+                Tab(selected = selectedTab == 2, onClick = { selectedTab = 2 }, text = { Text("Биохакинг") })
             }
             Spacer(Modifier.height(8.dp))
 
@@ -176,6 +178,9 @@ fun MainScreen(
                         }
                     } else { Text("Нет записей сна", fontSize = 14.sp, color = Color.Gray) }
                 }
+                2 -> {
+                    BiohackingScreen(data = biohackingData)
+                }
             }
 
         } else {
@@ -183,7 +188,7 @@ fun MainScreen(
         }
         Spacer(Modifier.height(16.dp))
         Text(
-            "v1.4.2",
+            "v1.4.3",
             fontSize = 12.sp,
             color = Color.Gray.copy(alpha = 0.5f),
             modifier = Modifier.align(Alignment.CenterHorizontally)
@@ -412,8 +417,8 @@ private fun StatCol(label: String, value: String, color: Color) {
 
 @Composable
 fun SettingsScreen(
-    zones: HeartRateZones, weight: Float, age: Int,
-    onSave: (HeartRateZones, Float, Int) -> Unit,
+    zones: HeartRateZones, weight: Float, age: Int, isMale: Boolean,
+    onSave: (HeartRateZones, Float, Int, Boolean) -> Unit,
     onBack: () -> Unit,
     onCheckUpdate: () -> Unit = {}
 ) {
@@ -423,6 +428,7 @@ fun SettingsScreen(
     var nz4 by rememberSaveable { mutableStateOf(zones.z4.toString()) }
     var nWeight by rememberSaveable { mutableStateOf(weight.toString()) }
     var nAge by rememberSaveable { mutableStateOf(age.toString()) }
+    var nMale by rememberSaveable { mutableStateOf(isMale) }
 
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -433,71 +439,49 @@ fun SettingsScreen(
             // Вес
             Card(Modifier.fillMaxWidth().padding(vertical = 4.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFFE3F2FD))) {
                 Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("⚖️ Ваш вес", fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                        Text("Для расчёта калорий", fontSize = 11.sp, color = Color.Gray)
-                    }
-                    OutlinedTextField(value = nWeight, onValueChange = { if (it.length <= 5 && it.all { c -> c.isDigit() || c == '.' }) nWeight = it },
-                        modifier = Modifier.width(90.dp), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                        textStyle = TextStyle(fontSize = 16.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center), singleLine = true)
+                    Column(Modifier.weight(1f)) { Text("⚖️ Ваш вес", fontSize = 16.sp, fontWeight = FontWeight.Bold); Text("Для расчёта калорий", fontSize = 11.sp, color = Color.Gray) }
+                    OutlinedTextField(value = nWeight, onValueChange = { if (it.length <= 5 && it.all { c -> c.isDigit() || c == '.' }) nWeight = it }, modifier = Modifier.width(90.dp), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), textStyle = TextStyle(fontSize = 16.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center), singleLine = true)
                     Text(" кг", fontSize = 14.sp, color = Color.Gray)
                 }
             }
             // Возраст
             Card(Modifier.fillMaxWidth().padding(vertical = 4.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF8E1))) {
                 Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("🎂 Ваш возраст", fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                        Text("Для maxHR = 220 − возраст", fontSize = 11.sp, color = Color.Gray)
-                    }
-                    OutlinedTextField(value = nAge, onValueChange = { if (it.length <= 3 && it.all { c -> c.isDigit() }) nAge = it },
-                        modifier = Modifier.width(80.dp), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        textStyle = TextStyle(fontSize = 16.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center), singleLine = true)
+                    Column(Modifier.weight(1f)) { Text("🎂 Ваш возраст", fontSize = 16.sp, fontWeight = FontWeight.Bold); Text("Для maxHR = 220 − возраст", fontSize = 11.sp, color = Color.Gray) }
+                    OutlinedTextField(value = nAge, onValueChange = { if (it.length <= 3 && it.all { c -> c.isDigit() }) nAge = it }, modifier = Modifier.width(80.dp), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), textStyle = TextStyle(fontSize = 16.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center), singleLine = true)
                     Text(" лет", fontSize = 14.sp, color = Color.Gray)
+                }
+            }
+            // Пол
+            Card(Modifier.fillMaxWidth().padding(vertical = 4.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFFFCE4EC))) {
+                Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) { Text("🚻 Пол", fontSize = 16.sp, fontWeight = FontWeight.Bold); Text("Для точности расчётов", fontSize = 11.sp, color = Color.Gray) }
+                    Text(if (nMale) "♂ Мужской" else "♀ Женский", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    Switch(checked = nMale, onCheckedChange = { nMale = it })
                 }
             }
             Spacer(Modifier.height(8.dp))
             Text("Настройка пульсовых зон", fontSize = 16.sp, fontWeight = FontWeight.Bold)
-
             ZoneRow(1, "Отдых", "70 - ", nz1) { nz1 = it }
             ZoneRow(2, "Жиросжигание 🔥", "$nz1 - ", nz2) { nz2 = it }
             ZoneRow(3, "Кардио", "$nz2 - ", nz3) { nz3 = it }
             ZoneRow(4, "Силовая 💪", "$nz3 - ", nz4) { nz4 = it }
-
             Card(Modifier.fillMaxWidth().padding(vertical = 3.dp), colors = CardDefaults.cardColors(containerColor = zoneColor(5).copy(alpha = 0.1f))) {
                 Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(12.dp).clip(CircleShape).background(zoneColor(5)))
-                    Spacer(Modifier.width(8.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text("Зона 5: Максимальная ⚠️", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = zoneColor(5))
-                        Text(zoneDesc(5), fontSize = 10.sp, color = Color.Gray)
-                    }
+                    Box(Modifier.size(12.dp).clip(CircleShape).background(zoneColor(5))); Spacer(Modifier.width(8.dp))
+                    Column(Modifier.weight(1f)) { Text("Зона 5: Максимальная ⚠️", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = zoneColor(5)); Text(zoneDesc(5), fontSize = 10.sp, color = Color.Gray) }
                     Text("$nz4 - 200", fontSize = 14.sp, color = Color.Gray)
                 }
             }
-
             Spacer(Modifier.height(16.dp))
             Button(onClick = {
                 val v1 = nz1.toIntOrNull(); val v2 = nz2.toIntOrNull(); val v3 = nz3.toIntOrNull(); val v4 = nz4.toIntOrNull()
                 val w = nWeight.toFloatOrNull(); val a = nAge.toIntOrNull()
-                if (v1 != null && v2 != null && v3 != null && v4 != null && w != null && a != null &&
-                    v1 < v2 && v2 < v3 && v3 < v4 && v1 in 50..200 && v4 in 60..220 && w in 20f..300f && a in 5..120
-                ) onSave(HeartRateZones(v1, v2, v3, v4), w, a)
-            }, modifier = Modifier.fillMaxWidth().height(48.dp)) {
-                Text("Сохранить", fontSize = 16.sp, fontWeight = FontWeight.Bold)
-            }
-
+                if (v1 != null && v2 != null && v3 != null && v4 != null && w != null && a != null && v1 < v2 && v2 < v3 && v3 < v4 && v1 in 50..200 && v4 in 60..220 && w in 20f..300f && a in 5..120)
+                    onSave(HeartRateZones(v1, v2, v3, v4), w, a, nMale)
+            }, modifier = Modifier.fillMaxWidth().height(48.dp)) { Text("СОХРАНИТЬ", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
             Spacer(Modifier.height(12.dp))
-
-            // Кнопка проверки обновлений
-            Button(
-                onClick = onCheckUpdate,
-                modifier = Modifier.fillMaxWidth().height(48.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2196F3))
-            ) {
-                Text("Проверить обновление", fontSize = 16.sp, fontWeight = FontWeight.Bold)
-            }
-
+            Button(onClick = onCheckUpdate, modifier = Modifier.fillMaxWidth().height(48.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2196F3))) { Text("🔍 ПРОВЕРИТЬ ОБНОВЛЕНИЯ", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
             Spacer(Modifier.height(24.dp))
         }
     }

@@ -118,3 +118,43 @@ sealed class Screen {
     data class SessionDetail(val sessionId: String) : Screen()
     data class SleepDetail(val sessionId: String) : Screen()
 }
+
+data class BiohackingData(
+    // Утренние метрики (после сна)
+    val morningReadiness: ReadinessScore? = null,
+    val morningRMSSD: Double = 0.0,
+    val morningHRV: String = "",
+    val restingHR: Int = 0,
+
+    // После тренировки
+    val vo2max: Double = 0.0,
+    val recoveryRate: Int = 0,
+    val peakHR: Int = 0,
+    val recoveryHR2min: Int = 0,
+
+    // Общие
+    val heartAge: Int = 0,
+    val heartHealthScore: Int = 0,
+    val stressIndex: Double = 0.0,
+    val stressLevel: String = "",
+
+    // Временные метки
+    val lastSleepEnd: String = "",
+    val lastTrainingEnd: String = "",
+    val hasMorningData: Boolean = false,
+    val hasTrainingData: Boolean = false,
+)
+
+data class ReadinessScore(
+    val score: Int,
+    val status: String,
+    val recommendation: String
+)
+
+data class HRVMetrics(
+    val rmssd: Double,
+    val sdnn: Double,
+    val pnn50: Double,
+    val meanRR: Double,
+    val stressIndex: Double
+)
