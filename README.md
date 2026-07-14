@@ -1,6 +1,6 @@
 # coospohrm
 
-Coospo H9Z Chest Heart Rate Monitor Workout Manager
+Coospo H9Z Chest Heart Rate Monitor Workout Manager (Android 12+)
 
 Features battery level display, workout manager, last 60 heart rate chart, and calorie counter.
 
